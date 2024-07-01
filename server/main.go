@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
-	"github.com/google/uuid"
+	"github.com/go-chi/cors"
 )
 
 // callDocument:
@@ -18,12 +18,29 @@ type OfferResponse struct {
 	Id string `json:"id"`
 }
 
+type AnswerResponse struct {
+	Id string `json:"id"`
+}
+
 type Offer struct {
-	Sdp  string `json:"sdp"`
-	Type string `json:"type"`
+	Id        string `json:"id"`
+	Sdp       string `json:"sdp"`
+	Type      string `json:"type"`
+	Candidate string `json:"candidate"`
+}
+
+type Answer struct {
+	CallID    string `json:"call_id"`
+	Sdp       string `json:"sdp"`
+	Type      string `json:"type"`
+	Candidate string `json:"candidate"`
 }
 
 type IceCandidate struct {
+	Candidate        string `json:"candidate"`
+	SdpMLineIndex    int    `json:"sdpMLineIndex"`
+	SdpMid           string `json:"sdpMid"`
+	UsernameFragment string `json:"usernameFragment"`
 }
 
 type Call struct {
@@ -34,6 +51,10 @@ type Call struct {
 
 func (c *Call) String() string {
 	return fmt.Sprint("%+v | %+v | %+v", c.Offer, c.OfferCandidates, c.AnswerCandidates)
+}
+
+func (c *Call) AddAnswerCandidate(candidate *IceCandidate) {
+	c.AnswerCandidates = append(c.AnswerCandidates, candidate)
 }
 
 type CallCollection struct {
@@ -53,9 +74,9 @@ func (c *CallCollection) Call(id string) *Call {
 }
 
 func (c *CallCollection) AddCall(call *Call) string {
-	id := uuid.NewString()
-	c.calls[id] = call
-	return id
+	// id := uuid.NewString()
+	c.calls[call.Offer.Id] = call
+	return call.Offer.Id
 }
 
 var callCollection = NewCallCollection()
@@ -66,6 +87,9 @@ var callCollection = NewCallCollection()
 func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins: []string{"https://*", "http://*"},
+	}))
 	r.Post("/offer", func(w http.ResponseWriter, r *http.Request) {
 		var offer Offer
 		if err := json.NewDecoder(r.Body).Decode(&offer); err != nil {
@@ -75,11 +99,23 @@ func main() {
 		call := &Call{
 			Offer: offer,
 		}
-		call_id := callCollection.AddCall(call)
-		fmt.Printf("CallCollection (new_id: %s): %+v\n", call_id, callCollection)
-		o := &OfferResponse{Id: "test"}
-		res, _ := json.Marshal(o)
+		callID := callCollection.AddCall(call)
+		fmt.Printf("CallCollection (new_id: %s): %+v\n", callID, callCollection)
+		// o := &OfferResponse{Id: callID}
+		// res, _ := json.Marshal(o)
+		res, _ := json.Marshal(call)
 		w.Write(res)
+	})
+
+	r.Post("/answer", func(w http.ResponseWriter, r *http.Request) {
+		var answer Answer
+		if err := json.NewDecoder(r.Body).Decode(&answer); err != nil {
+			fmt.Printf("Error unmarshaling request: %s\n", err)
+		}
+		fmt.Printf("Request answer: %+v", answer)
+
+		call := callCollection.Call(answer.CallID)
+		call.AddAnswerCandidate(&IceCandidate{Candidate: answer.Candidate})
 	})
 	http.ListenAndServe(":3000", r)
 }
