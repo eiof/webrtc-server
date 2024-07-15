@@ -36,6 +36,11 @@ type Answer struct {
 	Candidate string `json:"candidate"`
 }
 
+type OfferCandidateRequest struct {
+	CallID    string        `json:"callId"`
+	Candidate *IceCandidate `json:"candidate"`
+}
+
 type IceCandidate struct {
 	Candidate        string `json:"candidate"`
 	SdpMLineIndex    int    `json:"sdpMLineIndex"`
@@ -50,11 +55,15 @@ type Call struct {
 }
 
 func (c *Call) String() string {
-	return fmt.Sprint("%+v | %+v | %+v", c.Offer, c.OfferCandidates, c.AnswerCandidates)
+	return fmt.Sprintf("%+v | %+v | %+v", c.Offer, c.OfferCandidates, c.AnswerCandidates)
 }
 
 func (c *Call) AddAnswerCandidate(candidate *IceCandidate) {
 	c.AnswerCandidates = append(c.AnswerCandidates, candidate)
+}
+
+func (c *Call) AddOfferCandidate(candidate *IceCandidate) {
+	c.OfferCandidates = append(c.OfferCandidates, candidate)
 }
 
 type CallCollection struct {
@@ -68,9 +77,13 @@ func NewCallCollection() *CallCollection {
 }
 
 func (c *CallCollection) Call(id string) *Call {
-	// TODO: handle non-existence
-	call, _ := c.calls[id]
-	return call
+	if call, ok := c.calls[id]; !ok {
+		call = &Call{}
+		c.AddCall(call)
+		return call
+	} else {
+		return call
+	}
 }
 
 func (c *CallCollection) AddCall(call *Call) string {
@@ -95,12 +108,30 @@ func main() {
 		if err := json.NewDecoder(r.Body).Decode(&offer); err != nil {
 			fmt.Printf("Error unmarshaling request: %s\n", err)
 		}
-		fmt.Printf("Request offer: %+v", offer)
-		call := &Call{
-			Offer: offer,
+		fmt.Printf("Request offer: %+v\n", offer)
+		call := callCollection.Call(offer.Id)
+		call.Offer = offer
+
+		fmt.Printf("CallCollection (new_id: %s): %+v\n", offer.Id, callCollection)
+		// o := &OfferResponse{Id: callID}
+		// res, _ := json.Marshal(o)
+		res, _ := json.Marshal(call)
+		w.Write(res)
+	})
+
+	r.Post("/offer-candidate", func(w http.ResponseWriter, r *http.Request) {
+		var candidateRequest *OfferCandidateRequest
+		if err := json.NewDecoder(r.Body).Decode(&candidateRequest); err != nil {
+			fmt.Printf("Error unmarshaling request: %s\n", err)
 		}
-		callID := callCollection.AddCall(call)
-		fmt.Printf("CallCollection (new_id: %s): %+v\n", callID, callCollection)
+		fmt.Printf("Request offer-candidate: %+v\n", candidateRequest)
+		call := callCollection.Call(candidateRequest.CallID)
+		if call == nil {
+			fmt.Printf("CALL IS NIL!!!!!!!\n")
+		}
+		fmt.Printf("******Offer candidate: %+v\n", candidateRequest.Candidate)
+		call.AddOfferCandidate(candidateRequest.Candidate)
+		fmt.Printf("CallCollection (new_id: %s): %+v\n", candidateRequest.CallID, callCollection)
 		// o := &OfferResponse{Id: callID}
 		// res, _ := json.Marshal(o)
 		res, _ := json.Marshal(call)
